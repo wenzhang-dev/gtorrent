@@ -52,7 +52,7 @@ func buildUrl(t *Torrent, peerId []byte) (string, error) {
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},
 		"compact":    []string{"1"},
-		"left":       []string{strconv.Itoa(t.FileLen)},
+		"left":       []string{strconv.FormatInt(t.FileLen, 10)},
 	}
 
 	parsed_url.RawQuery = params.Encode()

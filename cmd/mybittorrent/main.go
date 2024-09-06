@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	// bencode "github.com/jackpal/bencode-go" // Available if you need it!
 )
 
-// Ensures gofmt doesn't remove the "os" encoding/json import (feel free to remove this!)
 var _ = json.Marshal
 
 func decode() error {
@@ -132,7 +130,7 @@ func downloadPiece() error {
         return err
     }
 
-    if err := downloader.DownloadPiece(index, dstPath); err != nil {
+    if err := downloader.DownloadPiece(int64(index), dstPath); err != nil {
         return err
     }
 

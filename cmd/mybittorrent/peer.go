@@ -76,7 +76,7 @@ func (c *PeerConn) WriteMsg(m *PeerMsg) (int, error) {
 	return c.Write(buf)
 }
 
-func NewRequestMsg(index, offset, length int) *PeerMsg {
+func NewRequestMsg(index, offset, length int64) *PeerMsg {
 	payload := make([]byte, 12)
 	binary.BigEndian.PutUint32(payload[0:4], uint32(index))
 	binary.BigEndian.PutUint32(payload[4:8], uint32(offset))

@@ -30,7 +30,7 @@ func NewDownloader(peerId []byte, torrent *Torrent) (*Downloader, error) {
     }, nil
 }
 
-func (d *Downloader) resolveRange(idx int) (begin, end int){
+func (d *Downloader) resolveRange(idx int64) (begin, end int64){
     begin = idx * d.Torrent.PieceLen
     end = begin + d.Torrent.PieceLen
     if end > d.Torrent.FileLen {
@@ -45,12 +45,12 @@ func (d *Downloader) Download(filePath string) error {
 }
 
 // Download the specific piece
-func (d *Downloader) DownloadPiece(index int, filePath string) error {
-    return d.DownloadPieces([]int{index}, filePath)
+func (d *Downloader) DownloadPiece(index int64, filePath string) error {
+    return d.DownloadPieces([]int64{index}, filePath)
 }
 
 // Download the specific pieces
-func (d *Downloader) DownloadPieces(indexes []int, filePath string) error {
+func (d *Downloader) DownloadPieces(indexes []int64, filePath string) error {
     ctx := context.Background()
     allPieces := indexes == nil || len(indexes) == len(d.Torrent.InfoSHA1)
     singleFile := allPieces || len(indexes) == 1
@@ -64,7 +64,7 @@ func (d *Downloader) DownloadPieces(indexes []int, filePath string) error {
             filename = fmt.Sprintf("%s-%d", filename, piece.index)
         }
 
-        offset := 0
+        offset := int64(0)
         if allPieces {
             offset = piece.index * d.Torrent.PieceLen
         }
@@ -76,20 +76,21 @@ func (d *Downloader) DownloadPieces(indexes []int, filePath string) error {
 
         defer f.Close()
 
-        _, err = f.WriteAt(piece.data, int64(offset))
+        _, err = f.WriteAt(piece.data, offset)
         return err
     })
 }
 
+
 func (d *Downloader) DownloadPiecesWithCallback(
     ctx context.Context,
-    indexes []int,
+    indexes []int64,
     writer func(ctx context.Context, piece *Piece) error,
 ) error {
     if len(indexes) == 0 {
         // If indexes if empty, download all pieces
-        indexes = make([]int, len(d.Torrent.PieceSHA1))
-        for i := range indexes { indexes[i] = i }
+        indexes = make([]int64, len(d.Torrent.PieceSHA1))
+        for i := range indexes { indexes[i] = int64(i) }
     }
 
     d.PieceCh = make(chan *Piece)
@@ -99,7 +100,7 @@ func (d *Downloader) DownloadPiecesWithCallback(
     defer close(d.PieceCh)
 
     for _, idx := range(indexes) {
-        if idx > len(d.Torrent.PieceSHA1) {
+        if idx > int64(len(d.Torrent.PieceSHA1)) {
             return fmt.Errorf("Piece index out of range: %d", idx)
         }
 

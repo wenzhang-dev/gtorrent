@@ -3,42 +3,47 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/binary"
 	"fmt"
+	"sync/atomic"
 	"time"
-    "encoding/binary"
 )
 
 const (
-    MaxBacklog = 5
-    BlockSize = 16 * 1024
+    MaxBacklog int64 = 5
+    BlockSize int64 = 16 * 1024
 )
 
+// In different goroutines, we use atomic variables to keep corrent
+// data access. For example, In handleMsg goroutine, it maybe decrease
+// backlog number, but at the same time, downloadPiece goroutine maybe
+// increase the backlog number
 type TaskState struct {
-    backlog int
-    downloaded int
-    requested int
+    backlog *atomic.Int64
+    downloaded *atomic.Int64
+    requested *atomic.Int64
     data []byte
 }
 
-func NewTaskState(length int) TaskState {
+func NewTaskState(length int64) TaskState {
     return TaskState{
-        backlog: 0,
-        downloaded: 0,
-        requested: 0,
+        backlog: new(atomic.Int64),
+        downloaded: new(atomic.Int64),
+        requested: new(atomic.Int64),
         data: make([]byte, length),
     }
 }
 
 type Task struct {
-    index int
+    index int64
     sha1 []byte
-    length int
+    length int64
     
     stat TaskState
 }
 
 type Piece struct {
-    index int
+    index int64
     data []byte
 }
 
@@ -71,7 +76,7 @@ func NewWorker(
         return nil, err
     }
 
-    return &Worker{
+    worker := &Worker{
         Conn: conn,
         Bitfield: nil,
         Choke: true,
@@ -80,34 +85,59 @@ func NewWorker(
         Downloader: downloader,
         Err: nil,
         CloseCh: make(chan struct{}),
-    }, nil
+    }
+
+    if err := worker.initBitfield(); err != nil {
+        return nil, err
+    }
+
+    return worker, nil
+}
+
+func (w *Worker) initBitfield() error {
+    cancel := w.setTimeout(10 * time.Second)
+
+    msg, err := w.Conn.ReadMsg()
+    if err != nil {
+        return err
+    }
+
+    cancel()
+
+    if msg.Id != MsgBitfield {
+        return fmt.Errorf("Expect the bitfield message")
+    }
+
+    w.handleBitfield(msg.Payload)
+
+    return nil
 }
 
 func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
     task.stat = NewTaskState(task.length)
-    for task.stat.downloaded < task.length {
+    for task.stat.downloaded.Load() < task.length {
         if w.Err != nil {
             return nil, w.Err
         }
 
-        if w.Choke || task.stat.backlog >= MaxBacklog {
+        if w.Choke || task.stat.backlog.Load() >= MaxBacklog {
             time.Sleep(10 * time.Millisecond)
             continue
         }
         
-        for task.stat.requested < task.length {
+        for task.stat.requested.Load() < task.length {
             length := BlockSize
-            if task.length - task.stat.requested < length {
-                length = task.length - task.stat.requested
+            if task.length - task.stat.requested.Load() < length {
+                length = task.length - task.stat.requested.Load()
             }
 
-            msg := NewRequestMsg(task.index, task.stat.requested, length)
+            msg := NewRequestMsg(task.index, task.stat.requested.Load(), length)
             if _, err := w.Conn.WriteMsg(msg); err != nil {
                 return nil, err
             }
 
-            task.stat.backlog++
-            task.stat.requested += length
+            task.stat.backlog.Add(1)
+            task.stat.requested.Add(length)
         }
     }
 
@@ -117,16 +147,6 @@ func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
     }, nil
 }
 
-func (w *Worker) checkPiece(piece *Piece) error {
-    sha := sha1.Sum(piece.data)
-    originSha :=  w.Downloader.Torrent.PieceSHA1[piece.index]
-    if !bytes.Equal(sha[:], originSha) {
-        return fmt.Errorf("Mismatch SHA1 of piece#%d", piece.index)
-    }
-
-    return nil
-}
-
 func (w *Worker) Run() {
     defer w.Conn.Close()
     defer close(w.CloseCh)
@@ -134,7 +154,7 @@ func (w *Worker) Run() {
     go w.handleMsg()
 
     for task := range w.TaskCh {
-        if !w.Bitfield.HasPiece(task.index) {
+        if !w.Bitfield.HasPiece(int(task.index)) {
             w.TaskCh <- task
             continue
         }
@@ -154,13 +174,6 @@ func (w *Worker) Run() {
         }
 
         w.PieceCh <- piece
-    }
-}
-
-func (w *Worker) setTimeout(timeout time.Duration) func() {
-    w.Conn.SetDeadline(time.Now().Add(timeout))
-    return func() {
-        w.Conn.SetDeadline(time.Time{})
     }
 }
 
@@ -209,27 +222,45 @@ func (w *Worker) handlePieceMsg(payload []byte) error {
     if len(payload) < 8 {
         return fmt.Errorf("Invalid block data: payload size: %d", len(payload))
     }
-    index := binary.BigEndian.Uint32(payload[:4])
-    begin := binary.BigEndian.Uint32(payload[4:8])
+    index := int64(binary.BigEndian.Uint32(payload[:4]))
+    begin := int64(binary.BigEndian.Uint32(payload[4:8]))
     block := payload[8:]
 
     task := w.CurrentTask
-    if task == nil || task.stat.backlog <= 0 {
+    if task == nil || task.stat.backlog.Load() <= 0 {
         return fmt.Errorf("Invalid block data: no launched request")
     }
 
-    if index != uint32(task.index) {
+    if index != task.index {
         return fmt.Errorf("Mismatch piece#%d, but got %d", task.index, index)
     }
 
-    if len(block) > BlockSize || int(begin) + len(block) > task.length {
+    blockSize := int64(len(block))
+    if blockSize > BlockSize || begin + blockSize > task.length {
         return fmt.Errorf("Invalid block data: begin: %d, block size: %d", begin, len(block))
     }
 
     copy(task.stat.data[begin:], block)
 
-    task.stat.backlog--
-    task.stat.downloaded += len(block)
+    task.stat.backlog.Add(-1)
+    task.stat.downloaded.Add(blockSize)
+
+    return nil
+}
+
+func (w *Worker) setTimeout(timeout time.Duration) func() {
+    w.Conn.SetDeadline(time.Now().Add(timeout))
+    return func() {
+        w.Conn.SetDeadline(time.Time{})
+    }
+}
+
+func (w *Worker) checkPiece(piece *Piece) error {
+    sha := sha1.Sum(piece.data)
+    originSha :=  w.Downloader.Torrent.PieceSHA1[piece.index]
+    if !bytes.Equal(sha[:], originSha) {
+        return fmt.Errorf("Mismatch SHA1 of piece#%d", piece.index)
+    }
 
     return nil
 }

@@ -20,8 +20,8 @@ type Torrent struct {
 	Announce string
 	InfoSHA1  []byte
 	FileName string
-	FileLen  int
-	PieceLen int
+	FileLen  int64
+	PieceLen int64
 	PieceSHA1 [][]byte
 }
 
@@ -36,8 +36,8 @@ func ParseTorrent(content string) (torrent *Torrent, err error) {
 
 	torrent.Announce = meta.Announce
 	torrent.FileName = meta.Info.Name
-	torrent.FileLen = meta.Info.Length
-	torrent.PieceLen = meta.Info.PieceLength
+	torrent.FileLen = int64(meta.Info.Length)
+	torrent.PieceLen = int64(meta.Info.PieceLength)
 
     hasher := sha1.New()
     if err = Marshal(hasher, meta.Info); err != nil {
