@@ -24,6 +24,27 @@ func decode() error {
     return nil
 }
 
+func parse() error {
+    filename := os.Args[2]
+
+    content, err := os.ReadFile(filename)
+    if err != nil {
+        return err
+    }
+
+    parser := NewBencodeParser(string(content))
+
+    decoded, err := parser.Parse()
+    if err != nil {
+        return err
+    }
+
+    jsonOutput, _ := json.Marshal(decoded)
+    fmt.Println(string(jsonOutput))
+
+    return nil
+}
+
 func info() error {
     filename := os.Args[2]
 
@@ -177,6 +198,8 @@ func main() {
     switch command {
     case "decode":
         err = decode()
+    case "parse":
+        err = parse()
     case "info":
         err = info()
     case "peers":

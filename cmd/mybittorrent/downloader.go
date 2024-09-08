@@ -4,6 +4,7 @@ import (
     "fmt"
     "os"
     "context"
+    "log/slog"
 )
 
 type Downloader struct {
@@ -12,7 +13,8 @@ type Downloader struct {
     PeerId []byte
     PeerInfos []PeerInfo
 
-    Workers []*Worker
+    WorkerMgr *WorkerManager
+
     TaskCh chan *Task
     PieceCh chan *Piece
 }
@@ -23,11 +25,17 @@ func NewDownloader(peerId []byte, torrent *Torrent) (*Downloader, error) {
         return nil, err
     }
 
-    return &Downloader{
+    slog.Info("[Downloader] found the peers", "peers", peers.String())
+
+    downloader := &Downloader{
         Torrent: torrent,
         PeerId: peerId,
         PeerInfos: peers,
-    }, nil
+    }
+
+    downloader.WorkerMgr = NewWorkerManager(downloader, &WorkerManagerOptions{Workers: 5})
+
+    return downloader, nil
 }
 
 func (d *Downloader) resolveRange(idx int64) (begin, end int64){
@@ -81,7 +89,6 @@ func (d *Downloader) DownloadPieces(indexes []int64, filePath string) error {
     })
 }
 
-
 func (d *Downloader) DownloadPiecesWithCallback(
     ctx context.Context,
     indexes []int64,
@@ -98,6 +105,7 @@ func (d *Downloader) DownloadPiecesWithCallback(
 
     defer close(d.TaskCh)
     defer close(d.PieceCh)
+    defer d.WorkerMgr.Close()
 
     for _, idx := range(indexes) {
         if idx > int64(len(d.Torrent.PieceSHA1)) {
@@ -112,26 +120,22 @@ func (d *Downloader) DownloadPiecesWithCallback(
         }
     }
 
-    for _, peer := range(d.PeerInfos) {
-        worker, err := NewWorker(&peer, d.Torrent.InfoSHA1, d.PeerId, d.TaskCh, d.PieceCh, d)
-        if err != nil {
-            continue
-        }
-
-        d.Workers = append(d.Workers, worker)
-
-        go worker.Run()
-    }
+    d.WorkerMgr.Start()
 
     count := 0
     for count < len(indexes) {
         piece := <-d.PieceCh
+
+        slog.Info("[Downloader] got a piece", "Piece", piece.index)
+
         if err := writer(ctx, piece); err != nil {
             return err
         }
 
         count++
     }
+
+    slog.Info("[Downloader] download all requested pieces", "numPieces", count)
 
     return nil
 }

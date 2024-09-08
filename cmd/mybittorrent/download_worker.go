@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 )
@@ -61,6 +62,7 @@ type Worker struct {
 
     Err error
     CloseCh chan struct{}
+    Closed bool
 }
 
 func NewWorker(
@@ -85,6 +87,7 @@ func NewWorker(
         Downloader: downloader,
         Err: nil,
         CloseCh: make(chan struct{}),
+        Closed: false,
     }
 
     if err := worker.initBitfield(); err != nil {
@@ -94,15 +97,34 @@ func NewWorker(
     return worker, nil
 }
 
+func (w *Worker) Close() {
+    slog.Info(
+        "[Worker] worker will exit",
+        "peer", w.Conn.peer.String(),
+    )
+
+    // when the peer connection has been closed, the handleMsg goroutine will
+    // exit immediately. And then the Run routine will exit
+    w.Conn.Close()
+
+    // this channel is used to notify other stuffs
+    close(w.CloseCh)
+
+    w.Closed = true
+}
+
+func (w *Worker) IsClosed() bool {
+    return w.Closed
+}
+
 func (w *Worker) initBitfield() error {
     cancel := w.setTimeout(10 * time.Second)
-
     msg, err := w.Conn.ReadMsg()
+    cancel()
+
     if err != nil {
         return err
     }
-
-    cancel()
 
     if msg.Id != MsgBitfield {
         return fmt.Errorf("Expect the bitfield message")
@@ -148,8 +170,7 @@ func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
 }
 
 func (w *Worker) Run() {
-    defer w.Conn.Close()
-    defer close(w.CloseCh)
+    defer w.Close()
 
     go w.handleMsg()
 
@@ -187,13 +208,13 @@ func (w *Worker) handleMsg() {
     for err == nil {
         cancel := w.setTimeout(10 * time.Second)
         msg, err = w.Conn.ReadMsg()
+        cancel()
         if err != nil {
             return
         }
-        cancel()
 
         // keep-alive message
-        if msg.Payload == nil {
+        if msg == nil {
             continue
         }
 

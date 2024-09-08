@@ -8,11 +8,26 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type PeerInfo struct {
     Ip net.IP
     Port uint16
+}
+
+func (pi PeerInfo) String() string {
+    return fmt.Sprintf("%s:%d", pi.Ip.String(), pi.Port)
+}
+
+type PeerInfos []PeerInfo
+
+func (pi PeerInfos) String() string {
+    infos := make([]string, len(pi))
+    for idx, peer := range pi {
+        infos[idx] = fmt.Sprintf("%s:%d", peer.Ip.String(), peer.Port)
+    }
+    return strings.Join(infos, ",")
 }
 
 func NewPeerInfo(endpoint string) (*PeerInfo, error) {
@@ -59,7 +74,7 @@ func buildUrl(t *Torrent, peerId []byte) (string, error) {
 	return parsed_url.String(), nil
 }
 
-func buildPeerInfo(peers []byte) ([]PeerInfo, error) {
+func buildPeerInfo(peers []byte) (PeerInfos, error) {
 	num := len(peers) / PeerLen
 	if len(peers) % PeerLen != 0 {
         return nil, fmt.Errorf("Received malformed peers")
@@ -75,7 +90,7 @@ func buildPeerInfo(peers []byte) ([]PeerInfo, error) {
 	return infos, nil
 }
 
-func FindPeers(t *Torrent, peerId []byte) ([]PeerInfo, error) {
+func FindPeers(t *Torrent, peerId []byte) (PeerInfos, error) {
 	url_str, err := buildUrl(t, peerId)
 	if err != nil {
 		return nil, err

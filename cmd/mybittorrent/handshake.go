@@ -86,7 +86,7 @@ func Handshake(conn net.Conn, info_hash, peer_id []byte) (*HandshakeMsg, error) 
     }
 
     if !bytes.Equal(msg.InfoHash, info_hash) {
-        return nil, fmt.Errorf("Handshake failed: %x\n", msg.InfoHash)
+        return nil, fmt.Errorf("Handshake failed: %x", msg.InfoHash)
     }
 
     return msg, nil
