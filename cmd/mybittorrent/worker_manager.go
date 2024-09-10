@@ -77,27 +77,16 @@ func (mgr *WorkerManager) Start() {
             mgr.Downloader,
         )
         if err != nil {
-            slog.Info(
-                "[WorkerManager] skip peer",
-                "peer", mgr.PeerInfos[mgr.PeerInfoPos],
-                "err", err,
-            )
+            slog.Info("[WorkerManager] skip peer", "peer", mgr.PeerInfos[mgr.PeerInfoPos], "err", err)
             continue
         }
 
         mgr.Workers = append(mgr.Workers, worker)
 
-        slog.Info(
-            "[WorkerManager] monitor the worker",
-            "peer", worker.Conn.peer.String(),
-        )
+        slog.Info("[WorkerManager] monitor the worker", "peer", worker.Conn.peer.String())
         mgr.monitorWorker(len(mgr.Workers) - 1)
 
-        slog.Info(
-            "[WorkerManager] start a worker",
-            "peer", worker.Conn.peer.String(),
-            "index", len(mgr.Workers) - 1,
-        )
+        slog.Info("[WorkerManager] start a worker", "peer", worker.Conn.peer.String(), "index", len(mgr.Workers) - 1)
         go worker.Run()
 
         if len(mgr.Workers) >= numWorkers {
@@ -114,10 +103,7 @@ func (mgr *WorkerManager) keepalive() {
             slog.Info("[WorkerManager] keepalive closed")
             return
         case idx := <-mgr.monitorCh:
-            slog.Warn(
-                "[WorkerManager] keepalive got the exited worker",
-                "err", mgr.Workers[idx].Err.Error(),
-            )
+            slog.Warn("[WorkerManager] keepalive got the exited worker")
 retry:
             if mgr.PeerInfoPos >= len(mgr.PeerInfos) {
                 continue
@@ -136,10 +122,7 @@ retry:
                 goto retry
             }
 
-            slog.Info(
-                "[WorkerManager] keepalive launch a new worker",
-                "peer", mgr.PeerInfos[mgr.PeerInfoPos].String(),
-            )
+            slog.Info("[WorkerManager] keepalive launch a new worker", "peer", mgr.PeerInfos[mgr.PeerInfoPos].String())
 
             go worker.Run()
             mgr.Workers[idx] = worker
@@ -156,10 +139,7 @@ func (mgr *WorkerManager) monitorWorker(idx int) {
             return
         case <-mgr.Workers[idx].CloseCh:
             mgr.monitorCh <- idx
-            slog.Info(
-                "[WorkerManager] monitor got the exited worker",
-                "peer", mgr.Workers[idx].Conn.peer.String(),
-            )
+            slog.Info("[WorkerManager] monitor got the exited worker", "peer", mgr.Workers[idx].Conn.peer.String())
         }
     }(idx)
 }

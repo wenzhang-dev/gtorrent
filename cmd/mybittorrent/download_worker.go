@@ -60,7 +60,8 @@ type Worker struct {
 
     Downloader *Downloader
 
-    Err error
+    Ntfr chan struct{}
+
     CloseCh chan struct{}
     Closed bool
 }
@@ -85,7 +86,7 @@ func NewWorker(
         TaskCh: taskCh,
         PieceCh: pieceCh,
         Downloader: downloader,
-        Err: nil,
+        Ntfr: make(chan struct{}),
         CloseCh: make(chan struct{}),
         Closed: false,
     }
@@ -98,10 +99,7 @@ func NewWorker(
 }
 
 func (w *Worker) Close() {
-    slog.Info(
-        "[Worker] worker will exit",
-        "peer", w.Conn.peer.String(),
-    )
+    slog.Info("[Worker] worker will exit", "peer", w.Conn.peer.String())
 
     // when the peer connection has been closed, the handleMsg goroutine will
     // exit immediately. And then the Run routine will exit
@@ -137,16 +135,11 @@ func (w *Worker) initBitfield() error {
 
 func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
     task.stat = NewTaskState(task.length)
-    for task.stat.downloaded.Load() < task.length {
-        if w.Err != nil {
-            return nil, w.Err
+    handler := func() error {
+        if w.Choke || task.stat.backlog.Load() >= MaxBacklog {
+            return nil
         }
 
-        if w.Choke || task.stat.backlog.Load() >= MaxBacklog {
-            time.Sleep(10 * time.Millisecond)
-            continue
-        }
-        
         for task.stat.requested.Load() < task.length {
             length := BlockSize
             if task.length - task.stat.requested.Load() < length {
@@ -155,12 +148,33 @@ func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
 
             msg := NewRequestMsg(task.index, task.stat.requested.Load(), length)
             if _, err := w.Conn.WriteMsg(msg); err != nil {
-                return nil, err
+                return err
             }
 
             task.stat.backlog.Add(1)
             task.stat.requested.Add(length)
         }
+
+        return nil
+    }
+
+    ticker := time.NewTicker(10 * time.Second)
+    defer ticker.Stop()
+    for task.stat.downloaded.Load() < task.length {
+        select {
+        case _, ok := <-w.Ntfr:
+            if !ok {
+                return nil, fmt.Errorf("Receive the closed message")
+            }
+
+            if err := handler(); err != nil {
+                return nil, err
+            }
+        case <-ticker.C:
+            return nil, fmt.Errorf("Ticker timeout")
+        }
+
+        ticker.Reset(10 * time.Second)
     }
 
     return &Piece{
@@ -171,9 +185,10 @@ func (w *Worker) downloadPiece(task *Task) (*Piece, error) {
 
 func (w *Worker) Run() {
     defer w.Close()
-
     go w.handleMsg()
 
+    var err error
+    var piece *Piece
     for task := range w.TaskCh {
         if !w.Bitfield.HasPiece(int(task.index)) {
             w.TaskCh <- task
@@ -182,15 +197,15 @@ func (w *Worker) Run() {
 
         w.CurrentTask = task
 
-        piece, err := w.downloadPiece(task)
-        if err != nil {
-            fmt.Println(err)
+        if piece, err = w.downloadPiece(task); err != nil {
             w.TaskCh <- task
+            slog.Info("[Worker] main handler exited", "err", err)
             return
         }
 
-        if err := w.checkPiece(piece); err != nil {
+        if err = w.checkPiece(piece); err != nil {
             w.TaskCh <- task
+            slog.Info("[Worker] mismatch piece hash", "err", err)
             continue
         }
 
@@ -198,17 +213,23 @@ func (w *Worker) Run() {
     }
 }
 
+func (w *Worker) notify() {
+    w.Ntfr <- struct{}{}
+}
+
 func (w *Worker) handleMsg() {
     var err error
     var msg *PeerMsg
-    defer func() {
-        w.Err = err
+
+    defer close(w.Ntfr)
+    defer func(){
+        if err != nil {
+            slog.Info("[Worker] message handler exited", "err", err)
+        }
     }()
 
     for err == nil {
-        cancel := w.setTimeout(10 * time.Second)
         msg, err = w.Conn.ReadMsg()
-        cancel()
         if err != nil {
             return
         }
@@ -227,7 +248,10 @@ func (w *Worker) handleMsg() {
             w.Choke = false
         case MsgPiece:
             err = w.handlePieceMsg(msg.Payload)
+        // TOOD: handle other messages
         }
+
+        w.notify()
     }
 }
 

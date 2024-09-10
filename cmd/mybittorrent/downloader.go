@@ -107,6 +107,7 @@ func (d *Downloader) DownloadPiecesWithCallback(
     defer close(d.PieceCh)
     defer d.WorkerMgr.Close()
 
+    slog.Info("[Downloader] start download", "numPieces", len(indexes))
     for _, idx := range(indexes) {
         if idx > int64(len(d.Torrent.PieceSHA1)) {
             return fmt.Errorf("Piece index out of range: %d", idx)
