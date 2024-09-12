@@ -5,13 +5,19 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+    "github.com/wenzhang-dev/gtorrent/tracker"
+    "github.com/wenzhang-dev/gtorrent/bencode"
+    "github.com/wenzhang-dev/gtorrent/metainfo"
 )
 
 var _ = json.Marshal
+var PeerId = []byte("01020304050607080900")
+
 
 func decode() error {
     bencodedValue := os.Args[2]
-    parser := NewBencodeParser(bencodedValue)
+    parser := bencode.NewBencodeParser(bencodedValue)
 
     decoded, err := parser.Parse()
     if err != nil {
@@ -32,7 +38,7 @@ func parse() error {
         return err
     }
 
-    parser := NewBencodeParser(string(content))
+    parser := bencode.NewBencodeParser(string(content))
 
     decoded, err := parser.Parse()
     if err != nil {
@@ -83,13 +89,13 @@ func peers() error {
         return err
     }
 
-    peers, err := FindPeers(torrent, []byte("01020304050607080900"))
+    peers, err := tracker.FindPeers(torrent.Announce, torrent.InfoSHA1, PeerId)
     if err != nil {
         return err
     }
 
     for _, peer := range(peers) {
-        fmt.Printf("%s:%d\n", peer.Ip.String(), peer.Port)
+        fmt.Println(peer.String())
     }
 
     return nil
@@ -109,12 +115,12 @@ func handShake() error {
     }
 
     endpoint := os.Args[3]
-    peerInfo, err := NewPeerInfo(endpoint)
+    peerInfo, err := metainfo.NewPeerInfo(endpoint)
     if err != nil {
         return err
     }
 
-    peer, err := NewPeerConn(peerInfo, torrent.InfoSHA1, []byte("01020304050607080900"))
+    peer, err := NewPeerConn(peerInfo, torrent.InfoSHA1, PeerId)
     if err != nil {
         return err
     }
@@ -146,7 +152,7 @@ func downloadPiece() error {
         return err
     }
 
-    downloader, err := NewDownloader([]byte("01020304050607080900"), torrent)
+    downloader, err := NewDownloader(PeerId, torrent)
     if err != nil {
         return err
     }
@@ -178,7 +184,7 @@ func downloadAllPieces() error {
         return err
     }
 
-    downloader, err := NewDownloader([]byte("01020304050607080900"), torrent)
+    downloader, err := NewDownloader(PeerId, torrent)
     if err != nil {
         return err
     }

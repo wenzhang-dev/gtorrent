@@ -1,6 +1,10 @@
 package main
 
-import "log/slog"
+import (
+    "log/slog"
+
+    "github.com/wenzhang-dev/gtorrent/metainfo"
+)
 
 const (
     DefaultDownloaderWorkers = 3
@@ -13,7 +17,7 @@ type WorkerManager struct {
 
     Downloader *Downloader
 
-    PeerInfos []PeerInfo
+    PeerInfos metainfo.PeerInfos
     PeerInfoPos int
 
     Workers []*Worker

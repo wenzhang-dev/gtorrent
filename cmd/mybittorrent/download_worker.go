@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"time"
+
+    "github.com/wenzhang-dev/gtorrent/metainfo"
 )
 
 const (
@@ -67,7 +69,7 @@ type Worker struct {
 }
 
 func NewWorker(
-    peer *PeerInfo,
+    peer *metainfo.PeerInfo,
     infoHash []byte,
     peerId []byte,
     taskCh chan *Task,

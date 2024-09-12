@@ -3,9 +3,10 @@ package main
 import (
     "io"
     "net"
-    "fmt"
     "time"
     "encoding/binary"
+
+    "github.com/wenzhang-dev/gtorrent/metainfo"
 )
 
 type MsgId uint8
@@ -32,7 +33,7 @@ type PeerMsg struct {
 type PeerConn struct {
     net.Conn
 
-    peer PeerInfo
+    peer metainfo.PeerInfo
 	selfId []byte
     peerId []byte
 	infoSHA1 []byte
@@ -92,9 +93,8 @@ func NewInterestMsg() *PeerMsg {
     }
 }
 
-func NewPeerConn(peerInfo *PeerInfo, infoHash, selfId []byte) (*PeerConn, error) {
-    addr := fmt.Sprintf("%s:%d", peerInfo.Ip.String(), peerInfo.Port)
-    conn, err := net.DialTimeout("tcp", addr, 3 * time.Second)
+func NewPeerConn(peerInfo *metainfo.PeerInfo, infoHash, selfId []byte) (*PeerConn, error) {
+    conn, err := net.DialTimeout("tcp", peerInfo.String(), 3 * time.Second)
     if err != nil {
         return nil, err
     }

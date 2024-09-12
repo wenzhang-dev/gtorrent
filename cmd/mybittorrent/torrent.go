@@ -2,6 +2,8 @@ package main
 
 import (
     "crypto/sha1"
+
+    "github.com/wenzhang-dev/gtorrent/bencode"
 )
 
 type MetaInfo struct {
@@ -30,7 +32,7 @@ const SHA1_LEN = 20
 func ParseTorrent(content string) (torrent *Torrent, err error) {
     var meta Meta
 	torrent = new(Torrent)
-	if err = Unmarshal(content, &meta); err != nil {
+	if err = bencode.Unmarshal(content, &meta); err != nil {
         return
     }
 
@@ -40,7 +42,7 @@ func ParseTorrent(content string) (torrent *Torrent, err error) {
 	torrent.PieceLen = int64(meta.Info.PieceLength)
 
     hasher := sha1.New()
-    if err = Marshal(hasher, meta.Info); err != nil {
+    if err = bencode.Marshal(hasher, meta.Info); err != nil {
         return
     }
     torrent.InfoSHA1 = hasher.Sum(nil)

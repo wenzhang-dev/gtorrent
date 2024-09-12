@@ -5,13 +5,16 @@ import (
     "os"
     "context"
     "log/slog"
+
+    "github.com/wenzhang-dev/gtorrent/tracker"
+    "github.com/wenzhang-dev/gtorrent/metainfo"
 )
 
 type Downloader struct {
     Torrent *Torrent
 
     PeerId []byte
-    PeerInfos []PeerInfo
+    PeerInfos metainfo.PeerInfos
 
     WorkerMgr *WorkerManager
 
@@ -20,7 +23,7 @@ type Downloader struct {
 }
 
 func NewDownloader(peerId []byte, torrent *Torrent) (*Downloader, error) {
-    peers, err := FindPeers(torrent, peerId)
+    peers, err := tracker.FindPeers(torrent.Announce, torrent.InfoSHA1, peerId)
     if err != nil {
         return nil, err
     }
@@ -127,7 +130,7 @@ func (d *Downloader) DownloadPiecesWithCallback(
     for count < len(indexes) {
         piece := <-d.PieceCh
 
-        slog.Info("[Downloader] got a piece", "Piece", piece.index)
+        slog.Info("[Downloader] got a piece", "piece", piece.index)
 
         if err := writer(ctx, piece); err != nil {
             return err
